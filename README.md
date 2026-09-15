@@ -104,7 +104,3 @@ The API will be available at `http://localhost:8000`. Interactive docs (Swagger 
 - The LLM's own knowledge has a training cutoff and is not reliable on its own for recent events. Search grounding via Tavily is used to reduce this, but result quality still depends on what the search turns up.
 - If Tavily search fails or hits a rate limit, the system falls back to analysis without grounding rather than failing the request.
 - This is a prototype. Source-credibility scoring and a curated local fact-check database (as outlined in the original project plan) are not yet implemented.
-
-## License
-
-Add your license here.
