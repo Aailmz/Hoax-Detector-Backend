@@ -9,9 +9,7 @@ load_dotenv()
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60 * 24 * 7  # token berlaku 7 hari
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(plain_password: str) -> str:
     """
@@ -19,13 +17,11 @@ def hash_password(plain_password: str) -> str:
     """
     return pwd_context.hash(plain_password)
 
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Cek apakah password yang diinput user cocok dengan hash di database.
     """
     return pwd_context.verify(plain_password, hashed_password)
-
 
 def create_access_token(user_id: str, email: str) -> str:
     """
@@ -39,7 +35,6 @@ def create_access_token(user_id: str, email: str) -> str:
     }
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     return token
-
 
 def decode_access_token(token: str):
     """

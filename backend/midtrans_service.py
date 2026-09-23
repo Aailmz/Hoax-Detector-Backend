@@ -18,7 +18,6 @@ snap = midtransclient.Snap(
     client_key=MIDTRANS_CLIENT_KEY,
 )
 
-
 def create_subscription_checkout(user_id: str, email: str):
     """
     Bikin Snap transaction buat subscription bulanan.
@@ -51,7 +50,6 @@ def create_subscription_checkout(user_id: str, email: str):
         "token": transaction["token"],
         "redirect_url": transaction["redirect_url"],
     }
-
 
 def verify_notification_signature(order_id: str, status_code: str, gross_amount: str, signature_key: str) -> bool:
     """

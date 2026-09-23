@@ -3,7 +3,6 @@ from fastapi import Header, HTTPException
 from auth_service import decode_access_token
 from supabase_client import find_user_by_id
 
-
 async def get_current_user(authorization: str = Header(None)):
     """
     Dependency buat endpoint yang butuh login.

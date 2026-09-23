@@ -9,7 +9,6 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
 def find_cached_check(content: str):
     """
     Cek apakah konten yang mirip sudah pernah di-check sebelumnya.
@@ -25,7 +24,6 @@ def find_cached_check(content: str):
     if result.data:
         return result.data[0]
     return None
-
 
 def save_check(content: str, verdict: str, confidence: int, explanation: str, sources: list):
     """
@@ -46,7 +44,6 @@ def save_check(content: str, verdict: str, confidence: int, explanation: str, so
     )
     return result.data[0] if result.data else None
 
-
 def get_history(limit: int = 20):
     """
     Ambil riwayat check terbaru.
@@ -59,7 +56,6 @@ def get_history(limit: int = 20):
         .execute()
     )
     return result.data
-
 
 # ==========================
 # User & Auth related queries
@@ -76,7 +72,6 @@ def create_user(email: str, password_hash: str):
     )
     return result.data[0] if result.data else None
 
-
 def find_user_by_email(email: str):
     """
     Cari user berdasarkan email. Return None kalau tidak ketemu.
@@ -91,7 +86,6 @@ def find_user_by_email(email: str):
     if result.data:
         return result.data[0]
     return None
-
 
 def find_user_by_id(user_id: str):
     """
@@ -108,7 +102,6 @@ def find_user_by_id(user_id: str):
         return result.data[0]
     return None
 
-
 def find_user_by_api_key(api_key: str):
     """
     Cari user berdasarkan API key. Dipakai buat validasi endpoint developer API.
@@ -124,7 +117,6 @@ def find_user_by_api_key(api_key: str):
     if result.data:
         return result.data[0]
     return None
-
 
 # ==========================
 # Transaction related queries
@@ -148,7 +140,6 @@ def create_transaction(user_id: str, midtrans_order_id: str, amount: int):
     )
     return result.data[0] if result.data else None
 
-
 def find_transaction_by_order_id(midtrans_order_id: str):
     """
     Cari transaksi berdasarkan order_id dari Midtrans.
@@ -164,7 +155,6 @@ def find_transaction_by_order_id(midtrans_order_id: str):
         return result.data[0]
     return None
 
-
 def update_transaction_status(midtrans_order_id: str, status: str):
     """
     Update status transaksi (settlement/failed/expired) berdasarkan notifikasi Midtrans.
@@ -176,7 +166,6 @@ def update_transaction_status(midtrans_order_id: str, status: str):
         .execute()
     )
     return result.data[0] if result.data else None
-
 
 def activate_subscription(user_id: str, api_key: str, expires_at: str):
     """
