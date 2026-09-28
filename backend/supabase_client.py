@@ -9,6 +9,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
 def find_cached_check(content: str):
     """
     Cek apakah konten yang mirip sudah pernah di-check sebelumnya.
@@ -25,9 +26,19 @@ def find_cached_check(content: str):
         return result.data[0]
     return None
 
-def save_check(content: str, verdict: str, confidence: int, explanation: str, sources: list):
+
+def save_check(
+    content: str,
+    verdict: str,
+    confidence: int,
+    explanation: str,
+    sources: list,
+    user_id: str = None,
+    counted: bool = False,
+):
     """
     Simpan hasil check baru ke Supabase.
+    counted=True artinya check ini menghabiskan jatah harian user (non-cache).
     """
     result = (
         supabase.table("checks")
@@ -38,11 +49,34 @@ def save_check(content: str, verdict: str, confidence: int, explanation: str, so
                 "confidence": confidence,
                 "explanation": explanation,
                 "sources": sources,
+                "user_id": user_id,
+                "counted": counted,
             }
         )
         .execute()
     )
     return result.data[0] if result.data else None
+
+
+def count_checks_today(user_id: str) -> int:
+    """
+    Hitung berapa check (yang menghabiskan jatah) yang sudah dilakukan user hari ini.
+    'Hari ini' dihitung dari 00:00 UTC.
+    """
+    from datetime import datetime, timezone
+
+    start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    result = (
+        supabase.table("checks")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .eq("counted", True)
+        .gte("created_at", start_of_day.isoformat())
+        .execute()
+    )
+    return result.count or 0
+
 
 def get_history(limit: int = 20):
     """
@@ -56,6 +90,7 @@ def get_history(limit: int = 20):
         .execute()
     )
     return result.data
+
 
 # ==========================
 # User & Auth related queries
@@ -72,6 +107,7 @@ def create_user(email: str, password_hash: str):
     )
     return result.data[0] if result.data else None
 
+
 def find_user_by_email(email: str):
     """
     Cari user berdasarkan email. Return None kalau tidak ketemu.
@@ -87,6 +123,7 @@ def find_user_by_email(email: str):
         return result.data[0]
     return None
 
+
 def find_user_by_id(user_id: str):
     """
     Cari user berdasarkan id. Return None kalau tidak ketemu.
@@ -101,6 +138,7 @@ def find_user_by_id(user_id: str):
     if result.data:
         return result.data[0]
     return None
+
 
 def find_user_by_api_key(api_key: str):
     """
@@ -118,13 +156,20 @@ def find_user_by_api_key(api_key: str):
         return result.data[0]
     return None
 
+
 # ==========================
 # Transaction related queries
 # ==========================
 
-def create_transaction(user_id: str, midtrans_order_id: str, amount: int):
+def create_transaction(
+    user_id: str,
+    midtrans_order_id: str,
+    amount: int,
+    plan_type: str,
+    duration_days: int,
+):
     """
-    Simpan record transaksi baru dengan status 'pending'.
+    Simpan record transaksi baru dengan status 'pending', lengkap dengan paket yang dibeli.
     """
     result = (
         supabase.table("transactions")
@@ -134,11 +179,14 @@ def create_transaction(user_id: str, midtrans_order_id: str, amount: int):
                 "midtrans_order_id": midtrans_order_id,
                 "amount": amount,
                 "status": "pending",
+                "plan_type": plan_type,
+                "duration_days": duration_days,
             }
         )
         .execute()
     )
     return result.data[0] if result.data else None
+
 
 def find_transaction_by_order_id(midtrans_order_id: str):
     """
@@ -155,6 +203,7 @@ def find_transaction_by_order_id(midtrans_order_id: str):
         return result.data[0]
     return None
 
+
 def update_transaction_status(midtrans_order_id: str, status: str):
     """
     Update status transaksi (settlement/failed/expired) berdasarkan notifikasi Midtrans.
@@ -167,10 +216,10 @@ def update_transaction_status(midtrans_order_id: str, status: str):
     )
     return result.data[0] if result.data else None
 
-def activate_subscription(user_id: str, api_key: str, expires_at: str):
+
+def activate_subscription(user_id: str, api_key: str, expires_at: str, plan_type: str = None):
     """
-    Aktifkan subscription user: set status 'active', generate api_key (kalau belum ada),
-    dan set tanggal kedaluwarsa.
+    Aktifkan subscription user: set status 'active', api_key, tanggal kedaluwarsa, dan paket.
     """
     result = (
         supabase.table("users")
@@ -179,6 +228,7 @@ def activate_subscription(user_id: str, api_key: str, expires_at: str):
                 "subscription_status": "active",
                 "api_key": api_key,
                 "subscription_expires_at": expires_at,
+                "plan_type": plan_type,
             }
         )
         .eq("id", user_id)
