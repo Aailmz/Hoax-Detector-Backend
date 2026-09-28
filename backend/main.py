@@ -11,6 +11,7 @@ from models import (
     LoginRequest,
     TokenResponse,
     UserProfile,
+    CheckoutRequest,
     CheckoutResponse,
 )
 from supabase_client import (
@@ -24,31 +25,59 @@ from supabase_client import (
     find_transaction_by_order_id,
     update_transaction_status,
     activate_subscription,
+    count_checks_today,
 )
 from groq_service import analyze_content
 from url_fetcher import is_url, fetch_article_text
 from tavily_service import search_related_sources
 from auth_service import hash_password, verify_password, create_access_token
 from dependencies import get_current_user
-from midtrans_service import create_subscription_checkout, SUBSCRIPTION_PRICE, verify_notification_signature
+from midtrans_service import create_subscription_checkout, PLANS, verify_notification_signature
 
 app = FastAPI(title="Misinformation Detector API")
 
+FREE_DAILY_LIMIT = 3
+
+
+def is_subscription_active(user: dict) -> bool:
+    """
+    Subscription dianggap aktif kalau status 'active' DAN belum lewat expiry.
+    Dicek saat request (tanpa cron job), jadi user yang expired otomatis jadi gratis.
+    """
+    if user.get("subscription_status") != "active":
+        return False
+
+    expires_at = user.get("subscription_expires_at")
+    if not expires_at:
+        return False
+
+    expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+
+    return expiry > datetime.now(timezone.utc)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # nanti dipersempit ke domain frontend pas production
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/")
 async def root():
     return {"message": "Misinformation Detector API is running"}
 
+
 @app.post("/api/check", response_model=CheckResponse)
-async def check_misinformation(payload: CheckRequest):
+async def check_misinformation(
+    payload: CheckRequest,
+    current_user: dict = Depends(get_current_user),
+):
     raw_content = payload.content.strip()
 
+    # 0. Cek cache dulu. Cache hit TIDAK menghabiskan jatah harian.
     cached = find_cached_check(raw_content)
     if cached:
         return CheckResponse(
@@ -59,6 +88,19 @@ async def check_misinformation(payload: CheckRequest):
             from_cache=True,
         )
 
+    # 0b. Cache miss: cek jatah harian (kecuali subscription aktif)
+    if not is_subscription_active(current_user):
+        used_today = count_checks_today(current_user["id"])
+        if used_today >= FREE_DAILY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Batas harian akun gratis ({FREE_DAILY_LIMIT} pemeriksaan) sudah habis. "
+                    "Berlangganan untuk pemeriksaan tanpa batas."
+                ),
+            )
+
+    # 1. Kalau input berupa URL, fetch isi artikelnya dulu
     if is_url(raw_content):
         try:
             content_to_analyze = fetch_article_text(raw_content)
@@ -67,20 +109,27 @@ async def check_misinformation(payload: CheckRequest):
     else:
         content_to_analyze = raw_content
 
+    # 2. Search web pakai Tavily buat dapetin konteks terbaru (grounding)
+    #    Query pakai raw_content (klaim asli), bukan hasil fetch yang bisa panjang
     search_query = raw_content if not is_url(raw_content) else content_to_analyze[:200]
     search_context, sources = search_related_sources(search_query)
 
+    # 3. Panggil Groq, dikasih konteks hasil search buat grounding
     try:
         result = analyze_content(content_to_analyze, search_context=search_context, sources=sources)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal menganalisis konten: {str(e)}")
 
+    # 4. Simpan hasil ke Supabase, key-nya tetap input asli (raw_content).
+    #    counted=True karena ini check non-cache yang menghabiskan jatah.
     save_check(
         content=raw_content,
         verdict=result["verdict"],
         confidence=result["confidence"],
         explanation=result["explanation"],
         sources=result["sources"],
+        user_id=current_user["id"],
+        counted=True,
     )
 
     return CheckResponse(
@@ -91,9 +140,11 @@ async def check_misinformation(payload: CheckRequest):
         from_cache=False,
     )
 
+
 @app.get("/api/checks/history")
 async def check_history(limit: int = 20):
     return get_history(limit=limit)
+
 
 # ==========================
 # Auth endpoints
@@ -119,6 +170,7 @@ async def register(payload: RegisterRequest):
         api_key=new_user.get("api_key"),
     )
 
+
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login(payload: LoginRequest):
     user = find_user_by_email(payload.email)
@@ -131,31 +183,48 @@ async def login(payload: LoginRequest):
     token = create_access_token(user_id=user["id"], email=user["email"])
     return TokenResponse(access_token=token)
 
+
 @app.get("/api/account/me", response_model=UserProfile)
 async def get_my_profile(current_user: dict = Depends(get_current_user)):
+    subscribed = is_subscription_active(current_user)
+
     return UserProfile(
         id=current_user["id"],
         email=current_user["email"],
         subscription_status=current_user["subscription_status"],
         subscription_expires_at=current_user.get("subscription_expires_at"),
-        api_key=current_user.get("api_key"),
+        # API key hanya ditampilkan selama subscription masih berlaku
+        api_key=current_user.get("api_key") if subscribed else None,
+        plan_type=current_user.get("plan_type") if subscribed else None,
+        is_subscribed=subscribed,
+        checks_used_today=count_checks_today(current_user["id"]),
+        daily_limit=None if subscribed else FREE_DAILY_LIMIT,
     )
+
 
 # ==========================
 # Subscription / payment endpoints
 # ==========================
 
 @app.post("/api/subscription/checkout", response_model=CheckoutResponse)
-async def create_checkout(current_user: dict = Depends(get_current_user)):
+async def create_checkout(
+    payload: CheckoutRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    plan = PLANS[payload.plan_type]
+
     checkout = create_subscription_checkout(
         user_id=current_user["id"],
         email=current_user["email"],
+        plan_type=payload.plan_type,
     )
 
     transaction = create_transaction(
         user_id=current_user["id"],
         midtrans_order_id=checkout["order_id"],
-        amount=SUBSCRIPTION_PRICE,
+        amount=plan["price"],
+        plan_type=payload.plan_type,
+        duration_days=plan["duration_days"],
     )
 
     if not transaction:
@@ -166,6 +235,7 @@ async def create_checkout(current_user: dict = Depends(get_current_user)):
         snap_token=checkout["token"],
         redirect_url=checkout["redirect_url"],
     )
+
 
 @app.post("/api/subscription/webhook")
 async def midtrans_webhook(payload: dict):
@@ -183,23 +253,51 @@ async def midtrans_webhook(payload: dict):
     if not all([order_id, status_code, gross_amount, signature_key, transaction_status]):
         raise HTTPException(status_code=400, detail="Payload notifikasi tidak lengkap")
 
+    # 1. Verifikasi signature, tolak kalau tidak valid
     is_valid = verify_notification_signature(order_id, status_code, gross_amount, signature_key)
     if not is_valid:
         raise HTTPException(status_code=403, detail="Signature tidak valid")
 
+    # 2. Pastikan transaksi ini memang ada di database kita
     transaction = find_transaction_by_order_id(order_id)
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
 
+    # 3. Ambil status lama dulu sebelum di-update, buat cegah aktivasi ganda
+    #    (Midtrans bisa kirim notifikasi yang sama lebih dari sekali)
+    already_settled = transaction["status"] in ("settlement", "capture")
+
+    # 4. Update status transaksi sesuai notifikasi
     update_transaction_status(order_id, transaction_status)
 
-    if transaction_status in ("settlement", "capture"):
+    # 5. Kalau pembayaran sukses (dan belum pernah diproses), aktifkan subscription user
+    if transaction_status in ("settlement", "capture") and not already_settled:
         user_id = transaction["user_id"]
         user = find_user_by_id(user_id)
+
+        # Generate api_key baru cuma kalau user belum punya, biar key lama tetap valid
+        # kalau ini perpanjangan subscription, bukan pembelian pertama
         api_key = user.get("api_key") if user and user.get("api_key") else secrets.token_urlsafe(32)
 
-        expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        # Durasi dari transaksi; fallback ke 30 hari untuk transaksi lama yang belum punya kolom ini
+        duration_days = transaction.get("duration_days") or 30
+        plan_type = transaction.get("plan_type") or "monthly"
 
-        activate_subscription(user_id=user_id, api_key=api_key, expires_at=expires_at)
+        # Perpanjangan: kalau masih aktif, tambah dari sisa masa aktif. Kalau tidak, mulai dari sekarang.
+        start_from = datetime.now(timezone.utc)
+        if user and is_subscription_active(user):
+            current_expiry = datetime.fromisoformat(str(user["subscription_expires_at"]).replace("Z", "+00:00"))
+            if current_expiry.tzinfo is None:
+                current_expiry = current_expiry.replace(tzinfo=timezone.utc)
+            start_from = current_expiry
+
+        expires_at = (start_from + timedelta(days=duration_days)).isoformat()
+
+        activate_subscription(
+            user_id=user_id,
+            api_key=api_key,
+            expires_at=expires_at,
+            plan_type=plan_type,
+        )
 
     return {"message": "Notifikasi diterima"}
