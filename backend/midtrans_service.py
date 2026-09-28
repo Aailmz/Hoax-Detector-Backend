@@ -9,8 +9,13 @@ load_dotenv()
 MIDTRANS_SERVER_KEY = os.getenv("MIDTRANS_SERVER_KEY")
 MIDTRANS_CLIENT_KEY = os.getenv("MIDTRANS_CLIENT_KEY")
 
-# Harga subscription bulanan (dalam Rupiah), sesuaikan sesuai kebutuhan
-SUBSCRIPTION_PRICE = 49000
+# Tabel paket: sumber tunggal harga (Rupiah) dan durasi (hari).
+# Mau ubah harga/durasi, cukup edit di sini.
+PLANS = {
+    "monthly": {"name": "1 Bulan", "price": 49000, "duration_days": 30},
+    "five_months": {"name": "5 Bulan", "price": 239000, "duration_days": 150},
+    "yearly": {"name": "1 Tahun", "price": 559000, "duration_days": 365},
+}
 
 snap = midtransclient.Snap(
     is_production=False,  # sandbox mode
@@ -18,27 +23,29 @@ snap = midtransclient.Snap(
     client_key=MIDTRANS_CLIENT_KEY,
 )
 
-def create_subscription_checkout(user_id: str, email: str):
+
+def create_subscription_checkout(user_id: str, email: str, plan_type: str):
     """
-    Bikin Snap transaction buat subscription bulanan.
-    Return: (order_id, snap_token, redirect_url)
+    Bikin Snap transaction buat paket subscription yang dipilih.
+    Return: dict berisi order_id, token, redirect_url
     """
+    plan = PLANS[plan_type]
     order_id = f"SUB-{user_id[:8]}-{uuid.uuid4().hex[:8]}"
 
     param = {
         "transaction_details": {
             "order_id": order_id,
-            "gross_amount": SUBSCRIPTION_PRICE,
+            "gross_amount": plan["price"],
         },
         "customer_details": {
             "email": email,
         },
         "item_details": [
             {
-                "id": "subscription-monthly",
-                "price": SUBSCRIPTION_PRICE,
+                "id": f"subscription-{plan_type}",
+                "price": plan["price"],
                 "quantity": 1,
-                "name": "Misinformation Detector API - Monthly Subscription",
+                "name": f"Misinformation Detector API - {plan['name']}",
             }
         ],
     }
@@ -50,6 +57,7 @@ def create_subscription_checkout(user_id: str, email: str):
         "token": transaction["token"],
         "redirect_url": transaction["redirect_url"],
     }
+
 
 def verify_notification_signature(order_id: str, status_code: str, gross_amount: str, signature_key: str) -> bool:
     """
