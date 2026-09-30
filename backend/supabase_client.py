@@ -233,3 +233,37 @@ def find_user_by_email_for_resend(email: str):
     """Dipakai endpoint resend-verification. Return user dict atau None."""
     result = supabase.table("users").select("*").eq("email", email).execute()
     return result.data[0] if result.data else None
+
+
+def set_reset_token(user_id: str, token: str, expires_at):
+    """Simpan token reset password baru untuk user."""
+    supabase.table("users").update({
+        "reset_token": token,
+        "reset_token_expires_at": expires_at.isoformat(),
+    }).eq("id", user_id).execute()
+
+
+def find_user_by_reset_token(token: str):
+    """
+    Cari user berdasarkan reset_token. Return dict user kalau valid & belum expired,
+    None kalau token tidak ditemukan atau sudah expired.
+    """
+    result = supabase.table("users").select("*").eq("reset_token", token).execute()
+    if not result.data:
+        return None
+
+    user = result.data[0]
+    expires_at = datetime.fromisoformat(user["reset_token_expires_at"])
+    if expires_at < datetime.now(timezone.utc):
+        return None
+
+    return user
+
+
+def update_password(user_id: str, new_password_hash: str):
+    """Update password user dan hapus reset_token supaya tidak bisa dipakai ulang."""
+    supabase.table("users").update({
+        "password_hash": new_password_hash,
+        "reset_token": None,
+        "reset_token_expires_at": None,
+    }).eq("id", user_id).execute()
