@@ -1,34 +1,37 @@
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
-GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+EMAIL_FROM = os.getenv("EMAIL_FROM")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5500")
+
+configuration = sib_api_v3_sdk.Configuration()
+configuration.api_key["api-key"] = BREVO_API_KEY
 
 
 def send_verification_email(to_email: str, token: str) -> bool:
+    """
+    Kirim email verifikasi akun lewat Brevo API. Return True kalau berhasil,
+    False kalau gagal (tidak melempar exception supaya register tidak ikut gagal).
+    """
     verify_link = f"{FRONTEND_URL}/verify.html?token={token}"
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Verifikasi akun Fact.AI kamu"
-    msg["From"] = GMAIL_ADDRESS
-    msg["To"] = to_email
-
-    html = f"""
-        <p>Terima kasih sudah mendaftar di Fact.AI.</p>
-        <p>Klik link berikut untuk verifikasi akun kamu (berlaku 24 jam):</p>
-        <p><a href="{verify_link}">{verify_link}</a></p>
-    """
-    msg.attach(MIMEText(html, "html"))
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    email_payload = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"email": EMAIL_FROM, "name": "Fact.AI"},
+        subject="Verifikasi akun Fact.AI kamu",
+        html_content=f"""
+            <p>Terima kasih sudah mendaftar di Fact.AI.</p>
+            <p>Klik link berikut untuk verifikasi akun kamu (berlaku 24 jam):</p>
+            <p><a href="{verify_link}">{verify_link}</a></p>
+        """,
+    )
 
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_ADDRESS, to_email, msg.as_string())
+        api_instance.send_transac_email(email_payload)
         return True
-    except Exception as e:
+    except ApiException as e:
         print(f"[email_service] Gagal kirim email verifikasi: {e}")
         return False
