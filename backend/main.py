@@ -55,7 +55,7 @@ from auth_service import (
     reset_token_expiry,
 )
 from email_service import send_verification_email, send_reset_password_email
-from dependencies import get_current_user
+from dependencies import get_current_user, get_current_user_by_api_key
 from midtrans_service import create_subscription_checkout, PLANS, verify_notification_signature
 
 app = FastAPI(title="Misinformation Detector API")
@@ -89,7 +89,7 @@ def is_subscription_active(user: dict) -> bool:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # nanti dipersempit ke domain frontend pas production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -100,18 +100,7 @@ async def root():
     return {"message": "Misinformation Detector API is running"}
 
 
-@app.post("/api/check", response_model=CheckResponse)
-async def check_misinformation(
-    payload: CheckRequest,
-    current_user: dict = Depends(get_current_user),
-):
-    raw_content = payload.content.strip()
-
-    if not current_user.get("email_verified"):
-        raise HTTPException(
-            status_code=403,
-            detail="Verifikasi email kamu dulu sebelum melakukan pemeriksaan. Cek inbox atau minta kirim ulang.",
-        )
+async def run_check(raw_content: str, current_user: dict) -> CheckResponse:
 
     cached = find_cached_check(raw_content)
     if cached:
@@ -124,20 +113,6 @@ async def check_misinformation(
             from_cache=True,
         )
 
-    
-    # 0b. Cache miss: cek jatah harian (kecuali subscription aktif)
-    if not is_subscription_active(current_user):
-        used_today = count_checks_today(current_user["id"])
-        if used_today >= FREE_DAILY_LIMIT:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"Batas harian akun gratis ({FREE_DAILY_LIMIT} pemeriksaan) sudah habis. "
-                    "Berlangganan untuk pemeriksaan tanpa batas."
-                ),
-            )
-
-    # 1. Kalau input berupa URL, fetch isi artikelnya dulu
     if is_url(raw_content):
         try:
             content_to_analyze = fetch_article_text(raw_content)
@@ -146,12 +121,9 @@ async def check_misinformation(
     else:
         content_to_analyze = raw_content
 
-    # 2. Search web pakai Tavily buat dapetin konteks terbaru (grounding)
-    #    Query pakai raw_content (klaim asli), bukan hasil fetch yang bisa panjang
     search_query = raw_content if not is_url(raw_content) else content_to_analyze[:200]
     search_context, sources = search_related_sources(search_query)
 
-    # 3. Panggil Groq, dikasih konteks hasil search buat grounding
     try:
         result = analyze_content(content_to_analyze, search_context=search_context, sources=sources)
     except Exception as e:
@@ -176,6 +148,48 @@ async def check_misinformation(
         analysis_details=result["analysis"],
         from_cache=False,
     )
+
+
+@app.post("/api/check", response_model=CheckResponse)
+async def check_misinformation(
+    payload: CheckRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    raw_content = payload.content.strip()
+
+    if not current_user.get("email_verified"):
+        raise HTTPException(
+            status_code=403,
+            detail="Verifikasi email kamu dulu sebelum melakukan pemeriksaan. Cek inbox atau minta kirim ulang.",
+        )
+
+    if not is_subscription_active(current_user):
+        used_today = count_checks_today(current_user["id"])
+        if used_today >= FREE_DAILY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Batas harian akun gratis ({FREE_DAILY_LIMIT} pemeriksaan) sudah habis. "
+                    "Berlangganan untuk pemeriksaan tanpa batas."
+                ),
+            )
+
+    return await run_check(raw_content, current_user)
+
+
+@app.post("/api/v1/check", response_model=CheckResponse)
+async def check_misinformation_v1(
+    payload: CheckRequest,
+    current_user: dict = Depends(get_current_user_by_api_key),
+):
+    if not is_subscription_active(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="API key ini tidak aktif. Subscription kamu sudah habis, perpanjang untuk terus memakai API.",
+        )
+
+    raw_content = payload.content.strip()
+    return await run_check(raw_content, current_user)
 
 
 @app.get("/api/checks/history", response_model=CheckHistoryResponse)
@@ -361,37 +375,27 @@ async def midtrans_webhook(payload: dict):
     if not all([order_id, status_code, gross_amount, signature_key, transaction_status]):
         raise HTTPException(status_code=400, detail="Payload notifikasi tidak lengkap")
 
-    # 1. Verifikasi signature, tolak kalau tidak valid
     is_valid = verify_notification_signature(order_id, status_code, gross_amount, signature_key)
     if not is_valid:
         raise HTTPException(status_code=403, detail="Signature tidak valid")
 
-    # 2. Pastikan transaksi ini memang ada di database kita
     transaction = find_transaction_by_order_id(order_id)
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
 
-    # 3. Ambil status lama dulu sebelum di-update, buat cegah aktivasi ganda
-    #    (Midtrans bisa kirim notifikasi yang sama lebih dari sekali)
     already_settled = transaction["status"] in ("settlement", "capture")
 
-    # 4. Update status transaksi sesuai notifikasi
     update_transaction_status(order_id, transaction_status)
 
-    # 5. Kalau pembayaran sukses (dan belum pernah diproses), aktifkan subscription user
     if transaction_status in ("settlement", "capture") and not already_settled:
         user_id = transaction["user_id"]
         user = find_user_by_id(user_id)
 
-        # Generate api_key baru cuma kalau user belum punya, biar key lama tetap valid
-        # kalau ini perpanjangan subscription, bukan pembelian pertama
         api_key = user.get("api_key") if user and user.get("api_key") else secrets.token_urlsafe(32)
 
-        # Durasi dari transaksi; fallback ke 30 hari untuk transaksi lama yang belum punya kolom ini
         duration_days = transaction.get("duration_days") or 30
         plan_type = transaction.get("plan_type") or "monthly"
 
-        # Perpanjangan: kalau masih aktif, tambah dari sisa masa aktif. Kalau tidak, mulai dari sekarang.
         start_from = datetime.now(timezone.utc)
         if user and is_subscription_active(user):
             current_expiry = datetime.fromisoformat(str(user["subscription_expires_at"]).replace("Z", "+00:00"))
