@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from jose import jwt, JWTError
@@ -45,3 +46,9 @@ def decode_access_token(token: str):
         return payload
     except JWTError:
         return None
+
+def generate_verification_token() -> str:
+    return secrets.token_urlsafe(32)
+
+def verification_token_expiry() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=24)
