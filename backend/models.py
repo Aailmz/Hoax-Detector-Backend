@@ -10,11 +10,22 @@ class Source(BaseModel):
     title: str
     url: str
 
+class AnalysisAspect(BaseModel):
+    score: int
+    description: str
+
+class AnalysisDetails(BaseModel):
+    credibility: AnalysisAspect
+    language: AnalysisAspect
+    fact_match: AnalysisAspect
+    context: AnalysisAspect
+
 class CheckResponse(BaseModel):
     verdict: str
     confidence: int
     explanation: str
     sources: List[Source] = []
+    analysis_details: AnalysisDetails
     from_cache: bool = False
 
 class RegisterRequest(BaseModel):
@@ -55,6 +66,7 @@ class CheckHistoryItem(BaseModel):
     confidence: int
     explanation: str
     sources: List[Source] = []
+    analysis_details: Optional[AnalysisDetails] = None
     created_at: datetime
 
 class CheckHistoryResponse(BaseModel):
