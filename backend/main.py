@@ -13,7 +13,7 @@ from models import (
     UserProfile,
     CheckoutRequest,
     CheckoutResponse,
-    CheckHistoryItem,
+    CheckHistoryResponse,
 )
 from supabase_client import (
     find_cached_check,
