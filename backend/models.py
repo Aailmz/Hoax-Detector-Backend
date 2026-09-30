@@ -63,3 +63,23 @@ class CheckHistoryResponse(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+class VerifyEmailResponse(BaseModel):
+    message: str
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+class ResendVerificationResponse(BaseModel):
+    message: str
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    subscription_status: str
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    email_verified: bool = False
+    subscription_status: str
