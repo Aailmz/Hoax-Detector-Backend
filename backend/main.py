@@ -17,6 +17,10 @@ from models import (
     VerifyEmailResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
+    ResetPasswordRequest,
+    ResetPasswordResponse,
 )
 from supabase_client import (
     find_cached_check,
@@ -33,12 +37,24 @@ from supabase_client import (
     set_verification_token,
     verify_email_token,
     find_user_by_email_for_resend,
+    set_reset_token,
+    find_user_by_reset_token,
+    update_password,
 )
+
 from groq_service import analyze_content
 from url_fetcher import is_url, fetch_article_text
 from tavily_service import search_related_sources
-from auth_service import hash_password, verify_password, create_access_token, generate_verification_token, verification_token_expiry
-from email_service import send_verification_email
+from auth_service import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    generate_verification_token,
+    verification_token_expiry,
+    generate_reset_token,
+    reset_token_expiry,
+)
+from email_service import send_verification_email, send_reset_password_email
 from dependencies import get_current_user
 from midtrans_service import create_subscription_checkout, PLANS, verify_notification_signature
 
@@ -266,6 +282,33 @@ def resend_verification(payload: ResendVerificationRequest):
     send_verification_email(user["email"], token)
     return {"message": "Email verifikasi telah dikirim ulang"}
 
+
+@app.post("/api/auth/forgot-password", response_model=ForgotPasswordResponse)
+def forgot_password(payload: ForgotPasswordRequest):
+    """
+    Selalu balas pesan yang sama baik email ditemukan atau tidak,
+    supaya orang lain tidak bisa pakai endpoint ini buat cek email mana yang terdaftar.
+    """
+    user = find_user_by_email(payload.email)
+    if user:
+        token = generate_reset_token()
+        expires_at = reset_token_expiry()
+        set_reset_token(user["id"], token, expires_at)
+        send_reset_password_email(user["email"], token)
+
+    return {"message": "Kalau email terdaftar, kami sudah mengirim link reset password ke email tersebut"}
+
+
+@app.post("/api/auth/reset-password", response_model=ResetPasswordResponse)
+def reset_password(payload: ResetPasswordRequest):
+    user = find_user_by_reset_token(payload.token)
+    if not user:
+        raise HTTPException(status_code=400, detail="Token reset password tidak valid atau sudah kedaluwarsa")
+
+    hashed = hash_password(payload.new_password)
+    update_password(user["id"], hashed)
+
+    return {"message": "Password berhasil diubah, silakan masuk dengan password baru"}
 
 # ==========================
 # Subscription / payment endpoints
