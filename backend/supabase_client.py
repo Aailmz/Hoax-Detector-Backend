@@ -11,10 +11,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def find_cached_check(content: str):
-    """
-    Cek apakah konten yang mirip sudah pernah di-check sebelumnya.
-    Pakai exact match dulu (simpel). Bisa diupgrade ke similarity search nanti.
-    """
     result = (
         supabase.table("checks")
         .select("*")
@@ -36,10 +32,6 @@ def save_check(
     user_id: str = None,
     counted: bool = False,
 ):
-    """
-    Simpan hasil check baru ke Supabase.
-    counted=True artinya check ini menghabiskan jatah harian user (non-cache).
-    """
     result = (
         supabase.table("checks")
         .insert(
@@ -59,10 +51,6 @@ def save_check(
 
 
 def count_checks_today(user_id: str) -> int:
-    """
-    Hitung berapa check (yang menghabiskan jatah) yang sudah dilakukan user hari ini.
-    'Hari ini' dihitung dari 00:00 UTC.
-    """
     from datetime import datetime, timezone
 
     start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -77,29 +65,23 @@ def count_checks_today(user_id: str) -> int:
     )
     return result.count or 0
 
-
-def get_history(limit: int = 20):
-    """
-    Ambil riwayat check terbaru.
-    """
+def get_history(user_id: str, page: int = 1, page_size: int = 10):
+    offset = (page - 1) * page_size
     result = (
         supabase.table("checks")
-        .select("*")
+        .select("*", count="exact")
+        .eq("user_id", user_id)
         .order("created_at", desc=True)
-        .limit(limit)
+        .range(offset, offset + page_size - 1)
         .execute()
     )
-    return result.data
-
+    return result.data, (result.count or 0)
 
 # ==========================
 # User & Auth related queries
 # ==========================
 
 def create_user(email: str, password_hash: str):
-    """
-    Bikin user baru. subscription_status default 'inactive' (sesuai default di tabel).
-    """
     result = (
         supabase.table("users")
         .insert({"email": email.strip().lower(), "password_hash": password_hash})
@@ -109,9 +91,6 @@ def create_user(email: str, password_hash: str):
 
 
 def find_user_by_email(email: str):
-    """
-    Cari user berdasarkan email. Return None kalau tidak ketemu.
-    """
     result = (
         supabase.table("users")
         .select("*")
@@ -125,9 +104,6 @@ def find_user_by_email(email: str):
 
 
 def find_user_by_id(user_id: str):
-    """
-    Cari user berdasarkan id. Return None kalau tidak ketemu.
-    """
     result = (
         supabase.table("users")
         .select("*")
@@ -141,10 +117,6 @@ def find_user_by_id(user_id: str):
 
 
 def find_user_by_api_key(api_key: str):
-    """
-    Cari user berdasarkan API key. Dipakai buat validasi endpoint developer API.
-    Return None kalau tidak ketemu.
-    """
     result = (
         supabase.table("users")
         .select("*")
@@ -155,7 +127,6 @@ def find_user_by_api_key(api_key: str):
     if result.data:
         return result.data[0]
     return None
-
 
 # ==========================
 # Transaction related queries
@@ -168,9 +139,6 @@ def create_transaction(
     plan_type: str,
     duration_days: int,
 ):
-    """
-    Simpan record transaksi baru dengan status 'pending', lengkap dengan paket yang dibeli.
-    """
     result = (
         supabase.table("transactions")
         .insert(
@@ -189,9 +157,6 @@ def create_transaction(
 
 
 def find_transaction_by_order_id(midtrans_order_id: str):
-    """
-    Cari transaksi berdasarkan order_id dari Midtrans.
-    """
     result = (
         supabase.table("transactions")
         .select("*")
@@ -205,9 +170,6 @@ def find_transaction_by_order_id(midtrans_order_id: str):
 
 
 def update_transaction_status(midtrans_order_id: str, status: str):
-    """
-    Update status transaksi (settlement/failed/expired) berdasarkan notifikasi Midtrans.
-    """
     result = (
         supabase.table("transactions")
         .update({"status": status})
@@ -218,9 +180,6 @@ def update_transaction_status(midtrans_order_id: str, status: str):
 
 
 def activate_subscription(user_id: str, api_key: str, expires_at: str, plan_type: str = None):
-    """
-    Aktifkan subscription user: set status 'active', api_key, tanggal kedaluwarsa, dan paket.
-    """
     result = (
         supabase.table("users")
         .update(
