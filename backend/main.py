@@ -46,6 +46,12 @@ app = FastAPI(title="Misinformation Detector API")
 
 FREE_DAILY_LIMIT = 3
 
+DEFAULT_ANALYSIS_DETAILS = {
+    "credibility": {"score": 50, "description": "Belum dianalisis (data lama sebelum fitur ini aktif)."},
+    "language": {"score": 50, "description": "Belum dianalisis (data lama sebelum fitur ini aktif)."},
+    "fact_match": {"score": 50, "description": "Belum dianalisis (data lama sebelum fitur ini aktif)."},
+    "context": {"score": 50, "description": "Belum dianalisis (data lama sebelum fitur ini aktif)."},
+}
 
 def is_subscription_active(user: dict) -> bool:
     """
@@ -91,7 +97,6 @@ async def check_misinformation(
             detail="Verifikasi email kamu dulu sebelum melakukan pemeriksaan. Cek inbox atau minta kirim ulang.",
         )
 
-    # 0. Cek cache dulu. Cache hit TIDAK menghabiskan jatah harian.
     cached = find_cached_check(raw_content)
     if cached:
         return CheckResponse(
@@ -99,6 +104,7 @@ async def check_misinformation(
             confidence=cached["confidence"],
             explanation=cached["explanation"],
             sources=cached.get("sources") or [],
+            analysis_details=cached.get("analysis_details") or DEFAULT_ANALYSIS_DETAILS,
             from_cache=True,
         )
 
@@ -135,8 +141,6 @@ async def check_misinformation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal menganalisis konten: {str(e)}")
 
-    # 4. Simpan hasil ke Supabase, key-nya tetap input asli (raw_content).
-    #    counted=True karena ini check non-cache yang menghabiskan jatah.
     save_check(
         content=raw_content,
         verdict=result["verdict"],
@@ -145,6 +149,7 @@ async def check_misinformation(
         sources=result["sources"],
         user_id=current_user["id"],
         counted=True,
+        analysis_details=result["analysis"],
     )
 
     return CheckResponse(
@@ -152,6 +157,7 @@ async def check_misinformation(
         confidence=result["confidence"],
         explanation=result["explanation"],
         sources=result["sources"],
+        analysis_details=result["analysis"],
         from_cache=False,
     )
 
