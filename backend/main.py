@@ -14,6 +14,9 @@ from models import (
     CheckoutRequest,
     CheckoutResponse,
     CheckHistoryResponse,
+    VerifyEmailResponse,
+    ResendVerificationRequest,
+    ResendVerificationResponse,
 )
 from supabase_client import (
     find_cached_check,
@@ -27,11 +30,15 @@ from supabase_client import (
     update_transaction_status,
     activate_subscription,
     count_checks_today,
+    set_verification_token,
+    verify_email_token,
+    find_user_by_email_for_resend,
 )
 from groq_service import analyze_content
 from url_fetcher import is_url, fetch_article_text
 from tavily_service import search_related_sources
-from auth_service import hash_password, verify_password, create_access_token
+from auth_service import hash_password, verify_password, create_access_token, generate_verification_token, verification_token_expiry
+from email_service import send_verification_email
 from dependencies import get_current_user
 from midtrans_service import create_subscription_checkout, PLANS, verify_notification_signature
 
@@ -78,6 +85,12 @@ async def check_misinformation(
 ):
     raw_content = payload.content.strip()
 
+    if not current_user.get("email_verified"):
+        raise HTTPException(
+            status_code=403,
+            detail="Verifikasi email kamu dulu sebelum melakukan pemeriksaan. Cek inbox atau minta kirim ulang.",
+        )
+
     # 0. Cek cache dulu. Cache hit TIDAK menghabiskan jatah harian.
     cached = find_cached_check(raw_content)
     if cached:
@@ -89,6 +102,7 @@ async def check_misinformation(
             from_cache=True,
         )
 
+    
     # 0b. Cache miss: cek jatah harian (kecuali subscription aktif)
     if not is_subscription_active(current_user):
         used_today = count_checks_today(current_user["id"])
@@ -174,11 +188,16 @@ async def register(payload: RegisterRequest):
     if existing:
         raise HTTPException(status_code=400, detail="Email sudah terdaftar")
 
-    hashed = hash_password(payload.password)
+        hashed = hash_password(payload.password)
     new_user = create_user(email=payload.email, password_hash=hashed)
 
     if not new_user:
         raise HTTPException(status_code=500, detail="Gagal membuat akun, coba lagi")
+
+    verification_token = generate_verification_token()
+    expires_at = verification_token_expiry()
+    set_verification_token(new_user["id"], verification_token, expires_at)
+    send_verification_email(new_user["email"], verification_token)
 
     return UserProfile(
         id=new_user["id"],
@@ -186,8 +205,8 @@ async def register(payload: RegisterRequest):
         subscription_status=new_user["subscription_status"],
         subscription_expires_at=new_user.get("subscription_expires_at"),
         api_key=new_user.get("api_key"),
+        email_verified=new_user.get("email_verified", False),
     )
-
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login(payload: LoginRequest):
@@ -209,6 +228,7 @@ async def get_my_profile(current_user: dict = Depends(get_current_user)):
     return UserProfile(
         id=current_user["id"],
         email=current_user["email"],
+        email_verified=current_user.get("email_verified", False),
         subscription_status=current_user["subscription_status"],
         subscription_expires_at=current_user.get("subscription_expires_at"),
         # API key hanya ditampilkan selama subscription masih berlaku
@@ -218,6 +238,27 @@ async def get_my_profile(current_user: dict = Depends(get_current_user)):
         checks_used_today=count_checks_today(current_user["id"]),
         daily_limit=None if subscribed else FREE_DAILY_LIMIT,
     )
+
+@app.get("/api/auth/verify", response_model=VerifyEmailResponse)
+def verify_email(token: str):
+    user = verify_email_token(token)
+    if not user:
+        raise HTTPException(status_code=400, detail="Token verifikasi tidak valid atau sudah kedaluwarsa")
+    return {"message": "Email berhasil diverifikasi"}
+
+@app.post("/api/auth/resend-verification", response_model=ResendVerificationResponse)
+def resend_verification(payload: ResendVerificationRequest):
+    user = find_user_by_email_for_resend(payload.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Email tidak ditemukan")
+    if user["email_verified"]:
+        raise HTTPException(status_code=400, detail="Akun sudah terverifikasi")
+
+    token = generate_verification_token()
+    expires_at = verification_token_expiry()
+    set_verification_token(user["id"], token, expires_at)
+    send_verification_email(user["email"], token)
+    return {"message": "Email verifikasi telah dikirim ulang"}
 
 
 # ==========================
