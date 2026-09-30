@@ -24,7 +24,7 @@ async def get_current_user(authorization: str = Header(None)):
     if not user:
         raise HTTPException(status_code=401, detail="User tidak ditemukan")
 
-    return 
+    return user
 
 async def get_current_user_by_api_key(x_api_key: str = Header(None)):
     """
