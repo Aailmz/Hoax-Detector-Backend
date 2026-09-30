@@ -43,6 +43,7 @@ class TokenResponse(BaseModel):
 class UserProfile(BaseModel):
     id: str
     email: str
+    email_verified: bool = False
     subscription_status: str
     subscription_expires_at: Optional[datetime] = None
     api_key: Optional[str] = None
@@ -97,14 +98,3 @@ class ResetPasswordRequest(BaseModel):
 
 class ResetPasswordResponse(BaseModel):
     message: str
-
-class UserProfile(BaseModel):
-    id: str
-    email: str
-    subscription_status: str
-
-class UserProfile(BaseModel):
-    id: str
-    email: str
-    email_verified: bool = False
-    subscription_status: str
