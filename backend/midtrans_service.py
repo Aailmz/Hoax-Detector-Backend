@@ -9,8 +9,6 @@ load_dotenv()
 MIDTRANS_SERVER_KEY = os.getenv("MIDTRANS_SERVER_KEY")
 MIDTRANS_CLIENT_KEY = os.getenv("MIDTRANS_CLIENT_KEY")
 
-# Tabel paket: sumber tunggal harga (Rupiah) dan durasi (hari).
-# Mau ubah harga/durasi, cukup edit di sini.
 PLANS = {
     "monthly": {"name": "1 Bulan", "price": 49000, "duration_days": 30},
     "five_months": {"name": "5 Bulan", "price": 239000, "duration_days": 150},
@@ -22,7 +20,6 @@ snap = midtransclient.Snap(
     server_key=MIDTRANS_SERVER_KEY,
     client_key=MIDTRANS_CLIENT_KEY,
 )
-
 
 def create_subscription_checkout(user_id: str, email: str, plan_type: str):
     """
@@ -57,7 +54,6 @@ def create_subscription_checkout(user_id: str, email: str, plan_type: str):
         "token": transaction["token"],
         "redirect_url": transaction["redirect_url"],
     }
-
 
 def verify_notification_signature(order_id: str, status_code: str, gross_amount: str, signature_key: str) -> bool:
     """
