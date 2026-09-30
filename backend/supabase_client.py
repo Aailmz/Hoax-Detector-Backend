@@ -10,7 +10,6 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
 def find_cached_check(content: str):
     result = (
         supabase.table("checks")
@@ -22,7 +21,6 @@ def find_cached_check(content: str):
     if result.data:
         return result.data[0]
     return None
-
 
 def save_check(
     content: str,
@@ -51,7 +49,6 @@ def save_check(
         .execute()
     )
     return result.data[0] if result.data else None
-
 
 def count_checks_today(user_id: str) -> int:
     from datetime import datetime, timezone
@@ -92,7 +89,6 @@ def create_user(email: str, password_hash: str):
     )
     return result.data[0] if result.data else None
 
-
 def find_user_by_email(email: str):
     result = (
         supabase.table("users")
@@ -105,7 +101,6 @@ def find_user_by_email(email: str):
         return result.data[0]
     return None
 
-
 def find_user_by_id(user_id: str):
     result = (
         supabase.table("users")
@@ -117,7 +112,6 @@ def find_user_by_id(user_id: str):
     if result.data:
         return result.data[0]
     return None
-
 
 def find_user_by_api_key(api_key: str):
     result = (
@@ -158,7 +152,6 @@ def create_transaction(
     )
     return result.data[0] if result.data else None
 
-
 def find_transaction_by_order_id(midtrans_order_id: str):
     result = (
         supabase.table("transactions")
@@ -171,7 +164,6 @@ def find_transaction_by_order_id(midtrans_order_id: str):
         return result.data[0]
     return None
 
-
 def update_transaction_status(midtrans_order_id: str, status: str):
     result = (
         supabase.table("transactions")
@@ -180,7 +172,6 @@ def update_transaction_status(midtrans_order_id: str, status: str):
         .execute()
     )
     return result.data[0] if result.data else None
-
 
 def activate_subscription(user_id: str, api_key: str, expires_at: str, plan_type: str = None):
     result = (
@@ -205,7 +196,6 @@ def set_verification_token(user_id: str, token: str, expires_at):
         "verification_token_expires_at": expires_at.isoformat(),
     }).eq("id", user_id).execute()
 
-
 def verify_email_token(token: str):
     """
     Cari user berdasarkan token. Return dict user kalau valid & belum expired,
@@ -228,12 +218,10 @@ def verify_email_token(token: str):
 
     return user
 
-
 def find_user_by_email_for_resend(email: str):
     """Dipakai endpoint resend-verification. Return user dict atau None."""
     result = supabase.table("users").select("*").eq("email", email).execute()
     return result.data[0] if result.data else None
-
 
 def set_reset_token(user_id: str, token: str, expires_at):
     """Simpan token reset password baru untuk user."""
@@ -241,7 +229,6 @@ def set_reset_token(user_id: str, token: str, expires_at):
         "reset_token": token,
         "reset_token_expires_at": expires_at.isoformat(),
     }).eq("id", user_id).execute()
-
 
 def find_user_by_reset_token(token: str):
     """
@@ -258,7 +245,6 @@ def find_user_by_reset_token(token: str):
         return None
 
     return user
-
 
 def update_password(user_id: str, new_password_hash: str):
     """Update password user dan hapus reset_token supaya tidak bisa dipakai ulang."""
