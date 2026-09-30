@@ -188,7 +188,7 @@ async def register(payload: RegisterRequest):
     if existing:
         raise HTTPException(status_code=400, detail="Email sudah terdaftar")
 
-        hashed = hash_password(payload.password)
+    hashed = hash_password(payload.password)
     new_user = create_user(email=payload.email, password_hash=hashed)
 
     if not new_user:
