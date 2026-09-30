@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -193,4 +194,40 @@ def activate_subscription(user_id: str, api_key: str, expires_at: str, plan_type
         .eq("id", user_id)
         .execute()
     )
+    return result.data[0] if result.data else None
+
+def set_verification_token(user_id: str, token: str, expires_at):
+    """Simpan token verifikasi baru untuk user (dipakai saat register & resend)."""
+    supabase.table("users").update({
+        "verification_token": token,
+        "verification_token_expires_at": expires_at.isoformat(),
+    }).eq("id", user_id).execute()
+
+
+def verify_email_token(token: str):
+    """
+    Cari user berdasarkan token. Return dict user kalau valid & belum expired,
+    None kalau token tidak ditemukan atau sudah expired.
+    """
+    result = supabase.table("users").select("*").eq("verification_token", token).execute()
+    if not result.data:
+        return None
+
+    user = result.data[0]
+    expires_at = datetime.fromisoformat(user["verification_token_expires_at"])
+    if expires_at < datetime.now(timezone.utc):
+        return None
+
+    supabase.table("users").update({
+        "email_verified": True,
+        "verification_token": None,
+        "verification_token_expires_at": None,
+    }).eq("id", user["id"]).execute()
+
+    return user
+
+
+def find_user_by_email_for_resend(email: str):
+    """Dipakai endpoint resend-verification. Return user dict atau None."""
+    result = supabase.table("users").select("*").eq("email", email).execute()
     return result.data[0] if result.data else None
