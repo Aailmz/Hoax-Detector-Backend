@@ -35,3 +35,4 @@ def send_verification_email(to_email: str, token: str) -> bool:
     except ApiException as e:
         print(f"[email_service] Gagal kirim email verifikasi: {e}")
         return False
+
