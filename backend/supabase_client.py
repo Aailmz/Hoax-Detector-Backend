@@ -32,6 +32,7 @@ def save_check(
     sources: list,
     user_id: str = None,
     counted: bool = False,
+    analysis_details: dict = None,
 ):
     result = (
         supabase.table("checks")
@@ -44,6 +45,7 @@ def save_check(
                 "sources": sources,
                 "user_id": user_id,
                 "counted": counted,
+                "analysis_details": analysis_details,
             }
         )
         .execute()
