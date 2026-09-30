@@ -13,6 +13,7 @@ from models import (
     UserProfile,
     CheckoutRequest,
     CheckoutResponse,
+    CheckHistoryItem,
 )
 from supabase_client import (
     find_cached_check,
@@ -141,9 +142,26 @@ async def check_misinformation(
     )
 
 
-@app.get("/api/checks/history")
-async def check_history(limit: int = 20):
-    return get_history(limit=limit)
+@app.get("/api/checks/history", response_model=CheckHistoryResponse)
+async def check_history(
+    page: int = 1,
+    page_size: int = 10,
+    current_user: dict = Depends(get_current_user),
+):
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 50:
+        page_size = 10
+
+    items, total = get_history(current_user["id"], page=page, page_size=page_size)
+
+    return CheckHistoryResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=(page * page_size) < total,
+    )
 
 
 # ==========================
