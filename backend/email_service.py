@@ -36,3 +36,25 @@ def send_verification_email(to_email: str, token: str) -> bool:
         print(f"[email_service] Gagal kirim email verifikasi: {e}")
         return False
 
+def send_reset_password_email(to_email: str, token: str) -> bool:
+    reset_link = f"{FRONTEND_URL}/reset-password.html?token={token}"
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    email_payload = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"email": EMAIL_FROM, "name": "Fact.AI"},
+        subject="Reset password akun Fact.AI kamu",
+        html_content=f"""
+            <p>Kami menerima permintaan reset password untuk akun kamu.</p>
+            <p>Klik link berikut untuk membuat password baru (berlaku 1 jam):</p>
+            <p><a href="{reset_link}">{reset_link}</a></p>
+            <p>Kalau kamu tidak meminta ini, abaikan saja email ini.</p>
+        """,
+    )
+
+    try:
+        api_instance.send_transac_email(email_payload)
+        return True
+    except ApiException as e:
+        print(f"[email_service] Gagal kirim email reset password: {e}")
+        return False
