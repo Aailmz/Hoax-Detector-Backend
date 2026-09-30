@@ -267,7 +267,6 @@ async def get_my_profile(current_user: dict = Depends(get_current_user)):
         email_verified=current_user.get("email_verified", False),
         subscription_status=current_user["subscription_status"],
         subscription_expires_at=current_user.get("subscription_expires_at"),
-        # API key hanya ditampilkan selama subscription masih berlaku
         api_key=current_user.get("api_key") if subscribed else None,
         plan_type=current_user.get("plan_type") if subscribed else None,
         is_subscribed=subscribed,
