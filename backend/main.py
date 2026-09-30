@@ -54,7 +54,7 @@ from auth_service import (
     generate_reset_token,
     reset_token_expiry,
 )
-from email_service import send_verification_email, send_reset_password_email
+from email_service import send_verification_email, send_reset_password_email, send_subscription_active_email
 from dependencies import get_current_user, get_current_user_by_api_key
 from midtrans_service import create_subscription_checkout, PLANS, verify_notification_signature
 
@@ -361,11 +361,6 @@ async def create_checkout(
 
 @app.post("/api/subscription/webhook")
 async def midtrans_webhook(payload: dict):
-    """
-    Endpoint yang didengerin Midtrans buat notifikasi status pembayaran.
-    Tidak butuh login (dipanggil server-to-server oleh Midtrans), tapi signature
-    tetap diverifikasi supaya tidak bisa dipalsukan.
-    """
     order_id = payload.get("order_id")
     status_code = payload.get("status_code")
     gross_amount = payload.get("gross_amount")
@@ -411,5 +406,8 @@ async def midtrans_webhook(payload: dict):
             expires_at=expires_at,
             plan_type=plan_type,
         )
+
+        if user:
+            send_subscription_active_email(user["email"], plan_type, expires_at)
 
     return {"message": "Notifikasi diterima"}

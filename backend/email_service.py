@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
@@ -57,4 +58,42 @@ def send_reset_password_email(to_email: str, token: str) -> bool:
         return True
     except ApiException as e:
         print(f"[email_service] Gagal kirim email reset password: {e}")
+        return False
+
+PLAN_LABELS = {
+    "monthly": "1 Bulan",
+    "five_months": "5 Bulan",
+    "yearly": "1 Tahun",
+}
+
+
+def send_subscription_active_email(to_email: str, plan_type: str, expires_at: str) -> bool:
+    """
+    Kirim email konfirmasi setelah subscription aktif/diperpanjang.
+    Return True kalau berhasil, False kalau gagal (tidak melempar exception).
+    """
+    plan_label = PLAN_LABELS.get(plan_type, plan_type)
+
+    try:
+        expiry_display = datetime.fromisoformat(expires_at).strftime("%d %B %Y")
+    except Exception:
+        expiry_display = expires_at
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    email_payload = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": to_email}],
+        sender={"email": EMAIL_FROM, "name": "Fact.AI"},
+        subject="Langganan Fact.AI kamu sudah aktif",
+        html_content=f"""
+            <p>Terima kasih! Langganan Fact.AI paket <strong>{plan_label}</strong> kamu sudah aktif.</p>
+            <p>Langganan kamu berlaku hingga <strong>{expiry_display}</strong>.</p>
+            <p>Kamu sekarang bisa melakukan pemeriksaan tanpa batas dan memakai API key di halaman akun.</p>
+        """,
+    )
+
+    try:
+        api_instance.send_transac_email(email_payload)
+        return True
+    except ApiException as e:
+        print(f"[email_service] Gagal kirim email subscription aktif: {e}")
         return False
