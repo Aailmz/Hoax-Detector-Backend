@@ -31,7 +31,7 @@ Free accounts get 3 checks per day; subscribers (via Midtrans) get unlimited che
 ### 1. Clone and enter the backend folder
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Aailmz/Hoax-Detector-Backend.git
 cd backend
 ```
 
