@@ -1,40 +1,30 @@
-# Misinformation Detector
+# Fact.AI Backend
 
-An AI-powered backend that checks whether a piece of text or a news URL is likely to be misinformation, using web search grounding and an LLM for analysis.
+An AI-powered backend that checks whether a piece of text or a news URL is likely to be misinformation, using web search grounding and an LLM for analysis. Includes user accounts, email verification, password reset, daily free-tier limits, paid subscriptions via Midtrans, and per-user check history.
 
 ## How it works
 
-1. A user submits a claim (plain text) or a news article URL.
-2. The system checks a Supabase cache first. If the same input was checked before, the cached result is returned immediately.
-3. If the input is a URL, the backend fetches and extracts the article's title and body text.
-4. The backend searches the web (via Tavily) for related, up-to-date sources on the claim.
-5. The claim, plus the search results, are sent to an LLM (Groq) which returns a verdict, a confidence score, and an explanation grounded in the search context.
-6. The result is cached in Supabase and returned to the caller.
+1. A user registers and verifies their email before they can run any checks.
+2. A user submits a claim (plain text) or a news article URL.
+3. The system checks a Supabase cache first. If the same input was checked before, the cached result is returned immediately without using up the daily quota.
+4. If the input is a URL, the backend fetches and extracts the article's title and body text.
+5. The backend searches the web (via Tavily) for related, up-to-date sources on the claim.
+6. The claim, plus the search results, are sent to an LLM (Groq) which returns a verdict, a confidence score, and an explanation grounded in the search context.
+7. The result is cached in Supabase, saved to the user's history, and returned to the caller.
 
-This design keeps repeated or previously-checked claims fast and cheap (served from cache), and only calls the search + AI pipeline when a claim hasn't been seen before.
+Free accounts get 3 checks per day; subscribers (via Midtrans) get unlimited checks and an API key.
 
 ## Tech stack
 
 - **Backend framework:** FastAPI (Python)
-- **Database / cache:** Supabase (Postgres)
+- **Database:** Supabase (Postgres)
 - **LLM:** Groq API (`openai/gpt-oss-120b`)
 - **Web search grounding:** Tavily API
 - **Article extraction:** `requests` + `BeautifulSoup`
-
-## Project structure
-
-```
-backend/
-├── main.py              # FastAPI app and routes
-├── models.py             # Pydantic request/response schemas
-├── groq_service.py       # LLM analysis logic (Groq)
-├── tavily_service.py     # Web search grounding logic (Tavily)
-├── url_fetcher.py        # URL detection + article text extraction
-├── supabase_client.py    # Supabase cache read/write
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
+- **Auth:** JWT (python-jose) + bcrypt (passlib)
+- **Payment:** Midtrans Snap
+- **Transactional email:** Brevo API (verification, password reset)
+- **Hosting:** Railway
 
 ## Setup
 
@@ -45,53 +35,27 @@ git clone <your-repo-url>
 cd backend
 ```
 
-### 2. Create a virtual environment
+### 2. Create a virtual environment and install dependencies
 
 ```bash
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
-```
-
-### 3. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Set up environment variables
-
-Copy the example file and fill in your own keys:
+### 3. Set up environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Required values in `.env`:
+Fill in your own keys for Groq, Tavily, Supabase, JWT secret, Midtrans, and Brevo (see `.env.example` for the full list).
 
-| Variable | Description |
-|---|---|
-| `GROQ_API_KEY` | API key from [console.groq.com](https://console.groq.com) |
-| `TAVILY_API_KEY` | API key from [app.tavily.com](https://app.tavily.com) |
-| `SUPABASE_URL` | Your Supabase project URL (base URL only, no `/rest/v1/`) |
-| `SUPABASE_KEY` | Your Supabase `anon` `public` API key |
+### 4. Set up the database
 
-### 5. Create the database table
+Create the `users`, `checks`, and `transactions` tables in your Supabase project (see project docs for the full schema), including the email verification and password reset columns on `users`.
 
-In your Supabase project's SQL Editor, run:
-
-```sql
-create table checks (
-  id uuid primary key default gen_random_uuid(),
-  content text not null,
-  verdict text not null,
-  confidence int not null,
-  explanation text,
-  sources jsonb,
-  created_at timestamp with time zone default now()
-);
-```
-
-### 6. Run the server
+### 5. Run the server
 
 ```bash
 uvicorn main:app --reload
@@ -101,6 +65,6 @@ The API will be available at `http://localhost:8000`. Interactive docs (Swagger 
 
 ## Notes and limitations
 
-- The LLM's own knowledge has a training cutoff and is not reliable on its own for recent events. Search grounding via Tavily is used to reduce this, but result quality still depends on what the search turns up.
+- The LLM's own knowledge has a training cutoff and is not reliable on its own for recent events. Search grounding via Tavily reduces this, but result quality still depends on what the search turns up.
 - If Tavily search fails or hits a rate limit, the system falls back to analysis without grounding rather than failing the request.
-- This is a prototype. Source-credibility scoring and a curated local fact-check database (as outlined in the original project plan) are not yet implemented.
+- This is a prototype built for a competition. CORS is currently open to all origins and should be narrowed before real production use.
