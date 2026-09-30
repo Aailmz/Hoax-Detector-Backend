@@ -52,3 +52,9 @@ def generate_verification_token() -> str:
 
 def verification_token_expiry() -> datetime:
     return datetime.now(timezone.utc) + timedelta(hours=24)
+
+def generate_reset_token() -> str:
+    return secrets.token_urlsafe(32)
+
+def reset_token_expiry() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=1)
